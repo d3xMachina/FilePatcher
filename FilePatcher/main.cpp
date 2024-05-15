@@ -14,6 +14,10 @@ int wmain(int argc, wchar_t* argv[])
     {
         sys::setConsoleUTF8(true);
 
+        std::cout << "FilePatcher by d3xMachina" << std::endl;
+        std::cout << "Patcher of binary files with pattern matching." << std::endl;
+        std::cout << std::endl;
+
         if (argc != 6)
         {
             std::string programName = sys::getProgramName(sm::toString(argv[0]));

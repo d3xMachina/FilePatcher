@@ -37,6 +37,9 @@ int wmain(int argc, wchar_t* argv[])
         Pattern replacement = Patcher::hexStringToBytes(replacementHex);
         int nOccurence = (occurrence == "all") ? 0 : std::stoul(occurrence);
 
+        // Create output directory
+        sys::createParentDirectories(outputFilename);
+
         // Patch the binary file
         Patcher patcher(inputFilename, outputFilename);
         patcher.replace(pattern, replacement, nOccurence);

@@ -1,4 +1,5 @@
 #include "system.h"
+#include <filesystem>
 #include <stdexcept>
 #include <windows.h>
 
@@ -33,5 +34,16 @@ std::string getProgramName(const std::string& path)
         return path; // No directory separator found, return the whole path
     }
     return path.substr(pos + 1); // Extract the filename
+}
+
+void createParentDirectories(std::string& filePath)
+{
+    std::filesystem::path path(filePath);
+    auto parentPath = path.parent_path();
+
+    if (!parentPath.empty())
+    {
+        std::filesystem::create_directories(parentPath);
+    }
 }
 }

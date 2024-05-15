@@ -49,8 +49,27 @@ int wmain(int argc, wchar_t* argv[])
         patcher.replace(pattern, replacement, nOccurence);
 
         std::cout << "Patching started..." << std::endl << std::endl;
-        patcher.patch();
-        std::cout << "Patching completed successfully!" << std::endl;
+
+        int replacedCount = patcher.patch();
+        int notFoundCount = patcher.notFoundCount();
+
+        if (notFoundCount == 0)
+        {
+            std::cout << "Patching completed successfully! " << std::endl;
+        }
+        else
+        {
+            std::cout << "Patching completed with error(s)." << std::endl;
+        }
+
+        if (replacedCount > 0)
+        {
+            std::cout << replacedCount << " replacement(s)." << std::endl;
+        }
+        if (notFoundCount > 0)
+        {
+            std::cout << notFoundCount << " pattern(s) not found!" << std::endl;
+        }
     }
     catch (const std::exception& e)
     {

@@ -83,7 +83,7 @@ size_t Patcher::getBiggestPatternSize() const
 }
 
 // Read and patch the file in chunks
-void Patcher::patch()
+int Patcher::patch()
 {
     std::ifstream inputFile(m_inputFilename, std::ios::binary);
     std::ofstream outputFile(m_outputFilename, std::ios::binary);
@@ -113,6 +113,8 @@ void Patcher::patch()
         if (patternByte & PatternFlag::WildcardLow)  mask &= 0xF0;
         return (byte & mask) == (static_cast<unsigned char>(patternByte) & mask);
     };
+
+    int patchCount = 0;
 
     while (inputFile)
     {
@@ -164,9 +166,10 @@ void Patcher::patch()
 
             it += patch.replacement.size(); // move past the replaced pattern
             afterMatchIt = it;
+            ++patchCount;
 
             // Optimization: remove the patch from the list to avoid checking for it next passes
-            if (patch.occurrence != 0 && patch.occurrence == patch.occurrenceCounter)
+            if (patch.occurrence > 0 && patch.occurrence == patch.occurrenceCounter)
             {
                 m_patches.erase(match.second);
                 biggestPatternSize = getBiggestPatternSize();
@@ -195,4 +198,22 @@ void Patcher::patch()
             std::copy(overlapIt, overlapIt + overlapSize, buffer.begin());
         }
     }
+
+    return patchCount;
+}
+
+int Patcher::notFoundCount() const
+{
+    int notFoundCount = 0;
+
+    for (auto patch : m_patches)
+    {
+        if ((patch.occurrence == 0 && patch.occurrenceCounter == 0) ||
+            (patch.occurrence > 0 && patch.occurrenceCounter < patch.occurrence))
+        {
+            ++notFoundCount;
+        }
+    }
+
+    return notFoundCount;
 }

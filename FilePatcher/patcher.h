@@ -31,7 +31,8 @@ public:
 
 	Patcher(const std::string& inputFilename, const std::string& outputFilename);
 	void replace(const Pattern& lookup, const Pattern& replacement, int occurrence);
-    void patch();
+    int patch();
+    int notFoundCount() const;
 
 private:
     const size_t defaultBufferSize = 4096;

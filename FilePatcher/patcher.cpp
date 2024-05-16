@@ -100,9 +100,9 @@ int Patcher::patch()
 
     size_t biggestPatternSize = getBiggestPatternSize();
     size_t overlapMaxSize = biggestPatternSize > 0 ? biggestPatternSize - 1 : 0; // -1 because there is minimum 1 byte that is overlapping at the end of the buffer
-    const size_t bufferSize = std::max(defaultBufferSize, biggestPatternSize);
+    const size_t readSize = std::max(defaultReadSize, biggestPatternSize);
 
-    std::vector<unsigned char> buffer(bufferSize + overlapMaxSize); // Extend buffer to handle overlap
+    std::vector<unsigned char> buffer(readSize + overlapMaxSize); // Extend buffer to handle overlap
     size_t bufferOffset = 0;
     size_t offset = 0;
 
@@ -118,7 +118,7 @@ int Patcher::patch()
 
     while (inputFile)
     {
-        inputFile.read(reinterpret_cast<char*>(buffer.data() + bufferOffset), bufferSize);
+        inputFile.read(reinterpret_cast<char*>(buffer.data() + bufferOffset), readSize);
         std::streamsize bytesRead = inputFile.gcount();
         size_t bufferContentSize = bytesRead + bufferOffset;
 
@@ -131,41 +131,40 @@ int Patcher::patch()
 
         // Search and replace pattern in the buffer
         auto it = buffer.begin();
+        auto contentEndIt = it + bufferContentSize;
         auto afterMatchIt = it;
-        std::vector<unsigned char>::iterator itContentEnd;
         while (true)
         {
-            itContentEnd = buffer.begin() + bufferContentSize;
-            auto match = multiSearch(it, itContentEnd, m_patches.begin(), m_patches.end(), patternComparer);
-            it = match.first;
-            if (it == itContentEnd)
+            auto match = multiSearch(it, contentEndIt, m_patches.begin(), m_patches.end(), patternComparer);
+            auto matchIt = match.first;
+            if (matchIt == contentEndIt)
             {
                 break;
             }
 
             auto patch = *(match.second);
+            afterMatchIt = matchIt + patch.replacement.size();
+            it = matchIt;
 
-            std::cout << "Patching " << bytesToHexString(it, it + patch.replacement.size()) << std::endl;                          
+            std::cout << "Patching " << bytesToHexString(matchIt, afterMatchIt) << std::endl;                          
 
             // Replace the bytes without changing the ones in wildcard
-            for (size_t i = 0; i < patch.replacement.size(); ++i)
+            for (auto replaceByte : patch.replacement)
             {
-                Byte replaceByte = patch.replacement[i];
-                unsigned char& patchedByte = *(it + i);
+                unsigned char& patchedByte = *it;
                 unsigned char mask = 0xFF;
 
                 if (replaceByte & PatternFlag::WildcardHigh) mask &= 0x0F;
                 if (replaceByte & PatternFlag::WildcardLow)  mask &= 0xF0;
 
                 patchedByte = static_cast<unsigned char>((replaceByte & mask) | (patchedByte & ~mask));
+                ++it;
             }
 
-            std::cout << "    with " << bytesToHexString(it, it + patch.replacement.size()) << std::endl
-                      << "    at offset 0x" << std::hex << std::uppercase << offset + std::distance(buffer.begin(), it) << std::endl
+            std::cout << "    with " << bytesToHexString(matchIt, afterMatchIt) << std::endl
+                      << "    at offset 0x" << std::hex << std::uppercase << offset + std::distance(buffer.begin(), matchIt) << std::endl
                       << std::endl;
 
-            it += patch.replacement.size(); // move past the replaced pattern
-            afterMatchIt = it;
             ++patchCount;
 
             // Optimization: remove the patch from the list to avoid checking for it next passes
@@ -180,13 +179,13 @@ int Patcher::patch()
         size_t overlapSize = overlapMaxSize;
         if (afterMatchIt != buffer.begin())
         {
-            overlapSize = distanceCapped(afterMatchIt, itContentEnd, overlapMaxSize);
+            overlapSize = distanceCapped(afterMatchIt, contentEndIt, overlapMaxSize);
             overlapMaxSize = biggestPatternSize > 0 ? biggestPatternSize - 1 : 0; // Optimization: reduce overlap size
         }
 
         size_t bytesPatched = bufferContentSize - overlapSize;
+        offset += bytesPatched;
         bufferOffset = overlapSize;
-        offset += bufferContentSize - overlapSize;
 
         // Write patched data to output file, excluding the overlap portion
         outputFile.write(reinterpret_cast<const char*>(buffer.data()), bytesPatched);
@@ -194,8 +193,8 @@ int Patcher::patch()
         if (overlapSize > 0)
         {
             // Shift the overlap portion to the beginning of the buffer
-            auto overlapIt = buffer.begin() + bytesPatched;
-            std::copy(overlapIt, overlapIt + overlapSize, buffer.begin());
+            auto overlapIt = contentEndIt - overlapSize;
+            std::copy(overlapIt, contentEndIt, buffer.begin());
         }
     }
 

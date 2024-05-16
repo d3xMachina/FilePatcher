@@ -35,7 +35,7 @@ public:
     int notFoundCount() const;
 
 private:
-    const size_t defaultBufferSize = 4096;
+    const size_t defaultReadSize = 4096;
 
     size_t getBiggestPatternSize() const;
 

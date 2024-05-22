@@ -50,7 +50,8 @@ int wmain(int argc, wchar_t* argv[])
 
         std::cout << "Patching started..." << std::endl << std::endl;
 
-        int replacedCount = patcher.patch();
+        patcher.patch();
+        int replacedCount = patcher.replacedCount();
         int notFoundCount = patcher.notFoundCount();
 
         if (notFoundCount == 0)

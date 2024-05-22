@@ -13,7 +13,7 @@ Patch::Patch(const Pattern& lookup, const Pattern& replacement, size_t occurrenc
     : lookup(lookup), replacement(replacement), occurrence(occurrence), occurrenceCounter(0) { }
 
 Patcher::Patcher(const std::string& inputFilename, const std::string& outputFilename)
-    : m_inputFilename(inputFilename), m_outputFilename(outputFilename) { }
+    : m_inputFilename(inputFilename), m_outputFilename(outputFilename), m_replacedCount(0) { }
 
 // Convert a string of hex digits to a vector of bytes
 Pattern Patcher::hexStringToBytes(const std::string& hex)
@@ -83,8 +83,10 @@ size_t Patcher::getBiggestPatternSize() const
 }
 
 // Read and patch the file in chunks
-int Patcher::patch()
+void Patcher::patch()
 {
+    m_replacedCount = 0;
+
     std::ifstream inputFile(m_inputFilename, std::ios::binary);
     std::ofstream outputFile(m_outputFilename, std::ios::binary);
 
@@ -102,19 +104,9 @@ int Patcher::patch()
     size_t overlapMaxSize = biggestPatternSize > 0 ? biggestPatternSize - 1 : 0; // -1 because there is minimum 1 byte that is overlapping at the end of the buffer
     const size_t readSize = std::max(defaultReadSize, biggestPatternSize);
 
-    std::vector<unsigned char> buffer(readSize + overlapMaxSize); // Extend buffer to handle overlap
+    FileBuffer buffer(readSize + overlapMaxSize); // Extend buffer to handle overlap
     size_t bufferOffset = 0;
     size_t offset = 0;
-
-    auto patternComparer = [](const unsigned char byte, const Byte patternByte)
-    {
-        unsigned char mask = 0xFF;
-        if (patternByte & PatternFlag::WildcardHigh) mask &= 0x0F;
-        if (patternByte & PatternFlag::WildcardLow)  mask &= 0xF0;
-        return (byte & mask) == (static_cast<unsigned char>(patternByte) & mask);
-    };
-
-    int patchCount = 0;
 
     while (inputFile)
     {
@@ -129,51 +121,9 @@ int Patcher::patch()
             break;
         }
 
-        // Search and replace pattern in the buffer
-        auto it = buffer.begin();
-        auto contentEndIt = it + bufferContentSize;
-        auto afterMatchIt = it;
-        while (true)
-        {
-            auto match = multiSearch(it, contentEndIt, m_patches.begin(), m_patches.end(), patternComparer);
-            auto matchIt = match.first;
-            if (matchIt == contentEndIt)
-            {
-                break;
-            }
-
-            auto patch = *(match.second);
-            afterMatchIt = matchIt + patch.replacement.size();
-            it = matchIt;
-
-            std::cout << "Patching " << bytesToHexString(matchIt, afterMatchIt) << std::endl;                          
-
-            // Replace the bytes without changing the ones in wildcard
-            for (auto replaceByte : patch.replacement)
-            {
-                unsigned char& patchedByte = *it;
-                unsigned char mask = 0xFF;
-
-                if (replaceByte & PatternFlag::WildcardHigh) mask &= 0x0F;
-                if (replaceByte & PatternFlag::WildcardLow)  mask &= 0xF0;
-
-                patchedByte = static_cast<unsigned char>((replaceByte & mask) | (patchedByte & ~mask));
-                ++it;
-            }
-
-            std::cout << "    with " << bytesToHexString(matchIt, afterMatchIt) << std::endl
-                      << "    at offset 0x" << std::hex << std::uppercase << offset + std::distance(buffer.begin(), matchIt) << std::endl
-                      << std::endl;
-
-            ++patchCount;
-
-            // Optimization: remove the patch from the list to avoid checking for it next passes
-            if (patch.occurrence > 0 && patch.occurrence == patch.occurrenceCounter)
-            {
-                m_patches.erase(match.second);
-                biggestPatternSize = getBiggestPatternSize();
-            }
-        }
+        // Search and replace patterns in the buffer
+        auto contentEndIt = buffer.begin() + bufferContentSize;
+        auto afterMatchIt = searchAndReplace(buffer.begin(), contentEndIt, offset, biggestPatternSize);
 
         // Get the size of the remaining non patched data in the overlap part to add it in the next pass
         size_t overlapSize = overlapMaxSize;
@@ -197,8 +147,65 @@ int Patcher::patch()
             std::copy(overlapIt, contentEndIt, buffer.begin());
         }
     }
+}
 
-    return patchCount;
+FileBuffer::iterator Patcher::searchAndReplace(FileBuffer::iterator first, FileBuffer::iterator last, size_t offset, size_t& biggestPatternSize)
+{
+    auto patternComparer = [](const unsigned char byte, const Byte patternByte)
+    {
+        unsigned char mask = 0xFF;
+        if (patternByte & PatternFlag::WildcardHigh) mask &= 0x0F;
+        if (patternByte & PatternFlag::WildcardLow)  mask &= 0xF0;
+        return (byte & mask) == (static_cast<unsigned char>(patternByte) & mask);
+    };
+
+    int patchCount = 0;
+    auto it = first;
+    auto afterMatchIt = it;
+
+    while (true)
+    {
+        auto match = multiSearch(it, last, m_patches.begin(), m_patches.end(), patternComparer);
+        auto matchIt = match.first;
+        if (matchIt == last)
+        {
+            break;
+        }
+
+        auto patch = *(match.second);
+        it = matchIt;
+        afterMatchIt = matchIt + patch.replacement.size();
+
+        std::cout << "Patching " << bytesToHexString(matchIt, afterMatchIt) << std::endl;                          
+
+        // Replace the bytes without changing the ones in wildcard
+        for (auto replaceByte : patch.replacement)
+        {
+            unsigned char& patchedByte = *it;
+            unsigned char mask = 0xFF;
+
+            if (replaceByte & PatternFlag::WildcardHigh) mask &= 0x0F;
+            if (replaceByte & PatternFlag::WildcardLow)  mask &= 0xF0;
+
+            patchedByte = static_cast<unsigned char>((replaceByte & mask) | (patchedByte & ~mask));
+            ++it;
+        }
+
+        std::cout << "    with " << bytesToHexString(matchIt, afterMatchIt) << std::endl
+                  << "    at offset 0x" << std::hex << std::uppercase << offset + std::distance(first, matchIt) << std::endl
+                  << std::endl;
+
+        ++m_replacedCount;
+
+        // Optimization: remove the patch from the list to avoid checking for it next passes
+        if (patch.occurrence > 0 && patch.occurrence == patch.occurrenceCounter)
+        {
+            m_patches.erase(match.second);
+            biggestPatternSize = getBiggestPatternSize();
+        }
+    }
+
+    return afterMatchIt;
 }
 
 int Patcher::notFoundCount() const
@@ -215,4 +222,9 @@ int Patcher::notFoundCount() const
     }
 
     return notFoundCount;
+}
+
+int Patcher::replacedCount() const
+{
+    return m_replacedCount;
 }

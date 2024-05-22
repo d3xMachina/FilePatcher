@@ -8,6 +8,7 @@
 
 typedef int Byte;
 typedef std::vector<Byte> Pattern;
+typedef std::vector<unsigned char> FileBuffer;
 
 enum PatternFlag
 {
@@ -31,20 +32,23 @@ public:
 
 	Patcher(const std::string& inputFilename, const std::string& outputFilename);
 	void replace(const Pattern& lookup, const Pattern& replacement, int occurrence);
-    int patch();
+    void patch();
+    int replacedCount() const;
     int notFoundCount() const;
 
 private:
     const size_t defaultReadSize = 4096;
 
+    FileBuffer::iterator searchAndReplace(FileBuffer::iterator first, FileBuffer::iterator last, size_t offset, size_t& biggestPatternSize);
     size_t getBiggestPatternSize() const;
 
     std::string m_inputFilename;
     std::string m_outputFilename;
     std::list<Patch> m_patches;
+    int m_replacedCount;
 
     // Templates
-	template<typename Iterator>
+    template<typename Iterator>
     static std::string bytesToHexString(Iterator begin, Iterator end)
     {
         std::ostringstream oss;
@@ -82,19 +86,30 @@ private:
         if (searchFirst != searchLast)
         {
             bool found = false;
+            size_t remainingLength = std::distance(first, last);
 
-            for (auto it = first; it != last; ++it)
+            for (auto it = first; it != last; ++it, --remainingLength)
             {
+                bool allPatternsSkipped = true;
+
                 for (auto searchIt = searchFirst; searchIt != searchLast; ++searchIt)
                 {
                     const auto& search = *searchIt;
                     const auto& range = search.lookup;
 
-                    // When patching all occurrences, no need to count them. Same when specific occurrence already found.
+                    // Skip patterns bigger than remaining data
+                    if (remainingLength < range.size())
+                    {
+                        continue;
+                    }
+
+                    // When patching all occurrences, no need to count them. Same when specific occurrence already found
                     if ((found && search.occurrence == 0) || (search.occurrence == search.occurrenceCounter))
                     {
                         continue;
                     }
+
+                    allPatternsSkipped = false;
 
                     if (matches(it, last, range.begin(), range.end(), pred))
                     {
@@ -105,8 +120,17 @@ private:
                             bestMatchData = it;
                             bestMatchSearch = searchIt;
                             found = true;
+
+                            // keep counting occurrences until end of soon-to-be patched data
+                            remainingLength = range.size();
+                            last = it + remainingLength;
                         }
                     }
+                }
+
+                if (allPatternsSkipped)
+                {
+                    break;
                 }
             }
         }
